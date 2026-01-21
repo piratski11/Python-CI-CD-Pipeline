@@ -1,0 +1,50 @@
+# Версия синтаксиса
+image: docker:latest
+
+# Сервисы, которые нам нужны (docker внутри docker)
+services:
+  - docker:dind
+
+# Этапы выполнения
+stages:
+  - build
+  - push
+
+# Переменные
+variables:
+  # Имя образа для Docker Hub
+  # ВАЖНО: замени "твой_логин" на реальный!
+  IMAGE_NAME: "vladislavik1103/21.01"
+  
+  # Тэг для образа (версия)
+  IMAGE_TAG: "latest"
+  
+  # Имя файла с Dockerfile
+  DOCKERFILE: "Dockerfile"
+
+# ПЕРЕД всеми заданиями выполнится этот скрипт
+before_script:
+  # Логинимся в Docker Hub
+  - echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
+
+# Задание 1: Сборка Docker образа
+build_image:
+  stage: build
+  script:
+    - echo "🛠️ Начинаю сборку Docker образа..."
+    - docker build -t vladislavskii/21.01:tagname -f $DOCKERFILE .
+    - echo "✅ Сборка завершена!"
+  only:
+    - main  # Выполнять только при пуше в main ветку
+
+# Задание 2: Пуш образа в Docker Hub
+push_to_dockerhub:
+  stage: push
+  script:
+    - echo "📤 Отправляю образ в Docker Hub..."
+    - docker push vladislavskii/21.01:tagname
+    - echo "🎉 Образ успешно загружен!"
+    - echo "🌟 Твой образ доступен по ссылке:"
+    - echo "   https://hub.docker.com/r/vladislavskii/21.01:tagname"
+  only:
+    - main
