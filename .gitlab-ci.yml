@@ -7,13 +7,14 @@ services:
 
 # Этапы выполнения
 stages:
+  - test
   - build
   - push
 
 # Переменные
 variables:
+  SSH_PRIVATE_KEY: $SSH_PRIVATE_KEY
   # Имя образа для Docker Hub
-  # ВАЖНО: замени "твой_логин" на реальный!
   IMAGE_NAME: "vladislavik1103/21.01"
   
   # Тэг для образа (версия)
@@ -22,29 +23,81 @@ variables:
   # Имя файла с Dockerfile
   DOCKERFILE: "Dockerfile"
 
-# ПЕРЕД всеми заданиями выполнится этот скрипт
-before_script:
-  # Логинимся в Docker Hub
-  - echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
-
-# Задание 1: Сборка Docker образа
-build_image:
-  stage: build
-  script:
-    - echo "🛠️ Начинаю сборку Docker образа..."
-    - docker build -t vladislavskii/21.01:tagname -f $DOCKERFILE .
-    - echo "✅ Сборка завершена!"
-  only:
-    - main  # Выполнять только при пуше в main ветку
-
-# Задание 2: Пуш образа в Docker Hub
-push_to_dockerhub:
-  stage: push
-  script:
-    - echo "📤 Отправляю образ в Docker Hub..."
-    - docker push vladislavskii/21.01:tagname
-    - echo "🎉 Образ успешно загружен!"
-    - echo "🌟 Твой образ доступен по ссылке:"
-    - echo "   https://hub.docker.com/r/vladislavskii/21.01:tagname"
-  only:
+test: 
+  stage: test
+  image: python:3.11-slim
+  before_script:
+    - pip install pytest requests
+  script: 
+    - echo "Запуск тестов..."
+    - python -m pytest tests/ -v 
+    - echo "Все тесты пройдены!"
+  artifacts:
+    reports:
+      junit: report.xml
+  only: 
+    - merge_requests
     - main
+
+build: 
+  stage: build
+  image: docker:latest
+  services: 
+    - docker:bind
+  before_script: 
+    - docker login -u "$DOCKER_PASSWORD"
+  script: 
+    - echo "Сборка multi-stage образа..."
+    - docker build -t $DOCKER_IMAGE:$DOCKER_IMAGE_TAG .
+    - |
+      if [[ -n "$CI_COMMIT_TAG" ]]; then
+        echo "🏷️  Это релизная версия: $CI_COMMIT_TAG"
+        docker tag $DOCKER_IMAGE:$DOCKER_IMAGE_TAG $DOCKER_IMAGE:$CI_COMMIT_TAG
+        docker tag $DOCKER_IMAGE:$DOCKER_IMAGE_TAG $DOCKER_IMAGE:latest
+        docker push $DOCKER_IMAGE:$CI_COMMIT_TAG
+        docker push $DOCKER_IMAGE:latest
+    - docker push $DOCKER_IMAGE:$DOCKER_IMAGE_TAG
+    - |
+      if [[ "$CI_COMMIT_BRANCH" == "main" && -z "$CI_COMMIT_TAG" ]]; then
+        docker tag $DOCKER_IMAGE:$DOCKER_IMAGE_TAG $DOCKER_IMAGE:latest
+        docker push $DOCKER_IMAGE:latest
+      fi
+  only: 
+    - main
+    - tags
+
+deploy:
+  stage: deploy 
+  image: alpine:latest 
+  before_script:
+    - apk add --no-cache openssh-client 
+    - mkdir -p ~/.ssh
+    - echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
+    - chmod 600 ~/.ssh/id_rsa
+    - ssh-keyscan -H $SERVER_IP >> ~/.ssh/known_hosts 
+  script:
+    - echo "Начинаю деплой"
+    - |
+      ssh -o StrictHostKeyChecking=no deploy@$SERVER_IP "
+        # Логинимся в Docker Hub на сервере
+        echo '$DOCKER_PASSWORD' | docker login -u '$DOCKER_USERNAME' --password-stdin
+        
+        # Останавливаем старый контейнер (если есть)
+        docker stop 21.01-app || true
+        docker rm 21.01-app || true
+        
+        # Запускаем новый контейнер
+        docker pull $DOCKER_IMAGE:$DOCKER_IMAGE_TAG
+        docker run -d \
+          --name 21.01-app \
+          --restart unless-stopped \
+          -p 80:8000 \
+          $DOCKER_IMAGE:$DOCKER_IMAGE_TAG
+          
+        # Очищаем старые образы
+        docker system prune -af
+      "
+    - echo "Деплой завершен"
+  only: 
+    - main 
+  when: manual 
