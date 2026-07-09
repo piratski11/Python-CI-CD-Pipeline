@@ -1,0 +1,42 @@
+stages: 
+  - build
+  - trigger
+
+variables:
+  IMAGE_TAG: $CI_COMMIT_SHORT_SHA
+
+cache:
+  paths: 
+    - .pip-cache/
+
+before_script:
+  - pip install --cache-dir .pip-cache -r requiremetns.txt || true
+
+build: 
+  stage: build 
+  script: 
+    - echo "building docker image with tag"
+    - docker build -t $CI_REGISTRY_IMAGE:$IMAGE_TAG .
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+    - docker push $CI_REGISTRY_IMAGE:$IMAGE_TAG
+  artifacts: 
+    paths: 
+      - version.txt
+    expire_in: 1 hour 
+  after_script: 
+    - echo $IMAGE_TAG > version.txt
+
+trigger_deploy: 
+  stage: trigger
+  script:
+    - echo "Triggering deploy pipeline"
+  trigger: 
+    project: vladislavki1103/deploy
+    branch: main 
+    strategy: depend 
+  variables: 
+    APP_IMAGE_TAG: $IMAGE_TAG
+    APP_IMAGE: $CI_REGISTRY_IMAGE
+  needs: 
+    - job: build 
+      artifacts: true
