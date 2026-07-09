@@ -1,26 +1,20 @@
-# Версия синтаксиса
+
 image: docker:latest
 
-# Сервисы, которые нам нужны (docker внутри docker)
 services:
   - docker:dind
 
-# Этапы выполнения
+
 stages:
   - test
   - build
-  - push
+  - deploy
 
-# Переменные
+
 variables:
   SSH_PRIVATE_KEY: $SSH_PRIVATE_KEY
-  # Имя образа для Docker Hub
   IMAGE_NAME: "vladislavik1103/21.01"
-  
-  # Тэг для образа (версия)
   IMAGE_TAG: "latest"
-  
-  # Имя файла с Dockerfile
   DOCKERFILE: "Dockerfile"
 
 test: 
@@ -79,22 +73,15 @@ deploy:
     - echo "Начинаю деплой"
     - |
       ssh -o StrictHostKeyChecking=no deploy@$SERVER_IP "
-        # Логинимся в Docker Hub на сервере
         echo '$DOCKER_PASSWORD' | docker login -u '$DOCKER_USERNAME' --password-stdin
-        
-        # Останавливаем старый контейнер (если есть)
         docker stop 21.01-app || true
         docker rm 21.01-app || true
-        
-        # Запускаем новый контейнер
         docker pull $DOCKER_IMAGE:$DOCKER_IMAGE_TAG
         docker run -d \
           --name 21.01-app \
           --restart unless-stopped \
           -p 80:8000 \
           $DOCKER_IMAGE:$DOCKER_IMAGE_TAG
-          
-        # Очищаем старые образы
         docker system prune -af
       "
     - echo "Деплой завершен"
